@@ -3,6 +3,8 @@ import os  # to work with environment variables
 import requests  # make a http request to api
 import json  # to process data returned from api
 import random # for bot to choose message randomly
+from replit import db
+from keep_alive import keep_alive # import the keep_alive function from the keep_alive.py file
 
 # create an instance of the client using methods from the discord.py library
 # GENERAL STEP = (create a new object) using library func
@@ -20,6 +22,10 @@ initial_encouragements = [
   "Hang in there.",
   "You got this!"
 ]
+
+# determine if bot will be responding to sad words 
+if "responding" not in db.keys():
+  db["responding"] = True
 
 # helper function 
 def get_quote():
@@ -45,6 +51,23 @@ def get_quote():
   quote += " -" + json_data[0]['a']
 
   return(quote)
+
+# before we add another command for the bot, let's add two helpful functions: add_helpful_message and del_helpful_message 
+def add_encouragement(encouraging_message):
+  # check if encouragements key is in database
+  if "encouragements" in db.keys():
+    encouragements = db["encouragements"]
+    encouragements.append(encouraging_message)
+    db["encouragements"] = encouragements  # save the updated list back to db
+  else:
+    db["encouragements"] = encouraging_message # create a new key value pair in db
+
+def delete_encouragement(index):
+  encouragements = db["encouragements"]
+  # check if index is valid
+  if len(encouragements) > index:
+    del encouragements[index]
+    db["encouragements"] = encouragements  # update db 
 
 
 
@@ -78,10 +101,56 @@ async def on_message(message):
   if msg.startswith('$inspire'):
     await message.channel.send(get_quote())
 
-  # go through every `word` in `sad_words` and check if any of the current `word` is in the `msg`
-  if any(word in msg for word in sad_words):
-    # found a word in the sad_words list in the message
-    await message.channel.send(random.choice(initial_encouragements))
+  options = initial_encouragements
+  # check to see if database has additional user added encouragements
+  if "encouragements" in db.keys():
+    options = options + list(db["encouragements"])  # concatenating two lists; repl.it stores list as ObservedList, so we need to cast it to list in order to use list concatenation
+
+  if db["responding"]:
+    # go through every `word` in `sad_words` and check if any of the current `word` is in the `msg`
+    if any(word in msg for word in sad_words):
+      # found a word in the sad_words list in the message
+      await message.channel.send(random.choice(options))  # respond an encouraging message
+
+  # detects to see if user wants to add a message 
+  if msg.startswith('$add'):
+    # parse msg so we don't add the command $new into our db
+    # encouraging_message = msg.split(" ")[1:]
+    encouraging_message = msg.split("$add ",1)[1] # a better approach that above
+    # encouraging_message has a ObservedList type
+    add_encouragement(encouraging_message) # this msg is added to the list of all encouraging message
+    await message.channel.send("New encouraging message added.") # return message so user knows that the message is added 
+
+  # check if user wants to delete a message, ex: $del 0
+  if msg.startswith('$del'):
+    # user passed in the index of the message it wants to delete
+    encouragements = []  # this list will be returned to the user
+    if "encouragements" in db.keys():
+      index = int(msg.split("$del",1)[1])  # get index user input; no need include space after command because we convert it to an integer
+      delete_encouragement(index)
+      encouragements = list(db["encouragements"])  # get the updated encouragements list to return to user
+    await message.channel.send(encouragements)
+
+  # check if user wants to list all encouragements
+  if msg.startswith("$list"):
+    encouragements = []  # because db could contain no encouragement 
+    if "encouragements" in db.keys():
+      encouragements = list(db["encouragements"])
+    await message.channel.send(encouragements)
+
+  # check if user wants the bot to respond to sad words or not
+  if msg.startswith("$responding"):
+    # user input: $responding true / $responding false
+    value = msg.split("$responding ",1)[1]
+
+    if value.lower() == "true":
+      db["responding"] = True
+      await message.channel.send("Responding is on.")
+    else:
+      db["responding"] = False  # if user enters anything but true set bot to not responding
+      await message.channel.send("Responding is off.")
+
+keep_alive()
 
 # now we need to run the bot
 # within the run method, we need to put our bot's token (password)
@@ -104,9 +173,9 @@ json module: api returns a json, which this module will allow us to work with th
 bot will recognize sad words that user typed and then reply with encouragement words
 1. create a python list of sad words for the bot to look for
 2. create a python list of encouragement words to reply 
-3. (user will be able to add more encouragement words to the database)
-4. when we receive a message, check the message to see if it contains sad words
-
+3. when we receive a message, check the message to see if it contains sad words
+4. use a database to store user submitted messages so user will be able to add more encouragement words for bot to display
+5. repl uses a key-value store 
 '''
 
 # by default, every project on repl.it is public so everyone will be able to see secrets like password
@@ -118,3 +187,14 @@ bot will recognize sad words that user typed and then reply with encouragement w
 # code: `import os`
 # 4. access the token 
 # code: `os.getenv('VAR_NAME')
+
+# if the repl browser window is closed, the bot will stop running. 
+# so, we have to setup a web server in repl, which will continue running even after the tab is 
+# however, repl.it will only run the web server for an hour before sleeping if it receives no request.
+# so a workaround is to use another app called UptimeRobot to ping the web server every say 5 minutes so repl will not sleep the web server
+
+# 1. create another .py file and add flask code 
+# 2. import the web server.py file into our bot's main.py file
+# 3. run the function in the web server file to setup the web server
+# 4. once the web server is running, get the url to the server
+# 5. ping the url with UptimeRobot
